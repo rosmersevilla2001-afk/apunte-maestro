@@ -29,6 +29,45 @@ function roundToDecimals(value: number, decimals: number): number {
   return Math.round(value * factor) / factor;
 }
 
+function extractHardBlockingReasons(decision: MarketDecision): string[] {
+  const nonPassChecks = decision.checks.filter((c) => c.status !== 'pass');
+  const aligned = nonPassChecks.length === decision.blockingConditions.length;
+
+  const hardBlockReasons: string[] = [];
+  const noDataReasons: string[] = [];
+
+  if (aligned) {
+    nonPassChecks.forEach((chk, idx) => {
+      const msg = decision.blockingConditions[idx];
+      if (!msg) return;
+      if (chk.status === 'block') hardBlockReasons.push(msg);
+      else if (chk.status === 'no_data') noDataReasons.push(msg);
+    });
+  } else {
+    for (const chk of nonPassChecks) {
+      if (chk.status === 'block') {
+        hardBlockReasons.push(`${chk.label}: ${chk.detail}.`);
+      } else if (chk.status === 'no_data') {
+        noDataReasons.push(`${chk.label}: ${chk.detail}.`);
+      }
+    }
+  }
+
+  if (hardBlockReasons.length > 0) {
+    return [...hardBlockReasons, ...noDataReasons].slice(0, 4);
+  }
+  if (noDataReasons.length > 0) {
+    return decision.blockingConditions.length === 1 && noDataReasons.length > 1
+      ? [decision.blockingConditions[0]]
+      : noDataReasons.slice(0, 4);
+  }
+  return decision.blockingConditions.length > 0
+    ? decision.blockingConditions.slice(0, 3)
+    : [
+        'Motor de Decisión en 🔴 NO COMPRAR: condición estructural, liquidez o datos 5M impiden operar.',
+      ];
+}
+
 export function getLocalDateKey(now: Date = new Date()): string {
   const y = now.getFullYear();
   const m = String(now.getMonth() + 1).padStart(2, '0');
@@ -364,10 +403,7 @@ export function evaluateLimitOperationPlan(
     );
   } else if (decision.state === 'NO TRADE') {
     state = 'NO COMPRAR';
-    blockingReasons.push(
-      decision.blockingConditions[0] ??
-        'Motor de Decisión en 🔴 NO COMPRAR: condición estructural, liquidez o datos 5M impiden operar.'
-    );
+    blockingReasons.push(...extractHardBlockingReasons(decision));
   } else if (
     marketDirection !== undefined &&
     (marketDirection.overallDirection !== 'ALCISTA' ||

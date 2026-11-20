@@ -61,10 +61,18 @@ export function evaluateMarketOpportunity(
   const sellFee = Math.max(0, Number.isFinite(feeConfig.sellFeePct) ? feeConfig.sellFeePct : 0.1);
   const totalFeesPct = round1((buyFee + sellFee) * 100) / 100;
 
-  // Compute real technical analyses on 15M (execution timeframe), 1H, and 4H using existing engine
-  const analysis15m = computeTechnicalAnalysis('15m', candlesByTimeframe, ticker, orderBook, nowMs);
-  const analysis1h = computeTechnicalAnalysis('1h', candlesByTimeframe, ticker, orderBook, nowMs);
-  const analysis4h = computeTechnicalAnalysis('4h', candlesByTimeframe, ticker, orderBook, nowMs);
+  // Use strictly closed candles (isClosed === true) so forming candles never alter indicators or score
+  const closedCandlesByTimeframe: Partial<Record<Timeframe, Candle[]>> = {
+    '5m': candlesByTimeframe['5m']?.filter((c) => c.isClosed),
+    '15m': candlesByTimeframe['15m']?.filter((c) => c.isClosed),
+    '1h': candlesByTimeframe['1h']?.filter((c) => c.isClosed),
+    '4h': candlesByTimeframe['4h']?.filter((c) => c.isClosed),
+  };
+
+  // Compute real technical analyses on 15M (execution timeframe), 1H, and 4H using closed candles only
+  const analysis15m = computeTechnicalAnalysis('15m', closedCandlesByTimeframe, ticker, orderBook, nowMs);
+  const analysis1h = computeTechnicalAnalysis('1h', closedCandlesByTimeframe, ticker, orderBook, nowMs);
+  const analysis4h = computeTechnicalAnalysis('4h', closedCandlesByTimeframe, ticker, orderBook, nowMs);
 
   const price = ticker?.price ?? null;
   const bestBid = orderBook?.bids[0]?.price ?? ticker?.bidPrice ?? null;
