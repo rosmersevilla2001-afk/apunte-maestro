@@ -244,14 +244,35 @@ export function normalizeOrderBook(
   };
 }
 
-export function normalizeCandle(raw: RawBinanceKline, market: MarketConfig): Candle {
-  const openTimeSec = Math.floor(raw[0] / 1000);
+const TIMEFRAME_INTERVAL_MS: Record<Timeframe, number> = {
+  '5m': 5 * 60 * 1000,
+  '15m': 15 * 60 * 1000,
+  '1h': 60 * 60 * 1000,
+  '4h': 4 * 60 * 60 * 1000,
+};
+
+export function normalizeCandle(
+  raw: RawBinanceKline,
+  market: MarketConfig,
+  interval?: Timeframe,
+  nowMs: number = Date.now()
+): Candle {
+  const openTimeMs = raw[0];
+  const openTimeSec = Math.floor(openTimeMs / 1000);
   const openRaw = parseFloat(raw[1]);
   const highRaw = parseFloat(raw[2]);
   const lowRaw = parseFloat(raw[3]);
   const closeRaw = parseFloat(raw[4]);
   const volBaseRaw = parseFloat(raw[5]);
   const volQuoteRaw = parseFloat(raw[7]);
+
+  // A candle is closed ONLY when its interval has finished relative to current time
+  const intervalEndMs = interval
+    ? openTimeMs + TIMEFRAME_INTERVAL_MS[interval]
+    : Number.isFinite(raw[6])
+      ? raw[6] + 1
+      : Infinity;
+  const isClosed = nowMs >= intervalEndMs;
 
   if (!market.inverted) {
     return {
@@ -261,7 +282,7 @@ export function normalizeCandle(raw: RawBinanceKline, market: MarketConfig): Can
       low: lowRaw,
       close: closeRaw,
       volume: volBaseRaw,
-      isClosed: true,
+      isClosed,
     };
   }
 
@@ -272,7 +293,7 @@ export function normalizeCandle(raw: RawBinanceKline, market: MarketConfig): Can
     low: safeInv(highRaw),
     close: safeInv(closeRaw),
     volume: volQuoteRaw,
-    isClosed: true,
+    isClosed,
   };
 }
 
@@ -333,9 +354,10 @@ export async function fetchKlines(
     signal
   );
 
+  const nowMs = Date.now();
   const dedup = new Map<number, Candle>();
   for (const row of raw) {
-    const candle = normalizeCandle(row, market);
+    const candle = normalizeCandle(row, market, interval, nowMs);
     if (
       Number.isFinite(candle.time) &&
       candle.open > 0 &&
