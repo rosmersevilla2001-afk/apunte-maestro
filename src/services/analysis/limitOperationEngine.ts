@@ -397,7 +397,7 @@ export function evaluateLimitOperationPlan(
     } else {
       state = 'COMPRAR LIMIT';
       reasons.push(
-        `Confluencia 10/10 confirmada (4H/1H/15M + Confirmación 5M en última vela cerrada).`
+        `Confluencia 11/11 confirmada (4H/1H/15M + Confirmación 5M en última vela cerrada + Dirección de Mercado).`
       );
       reasons.push(
         `Entrada BUY LIMIT en ${formatPrice(buyLimitPrice, market.priceDecimals)} (${buyLimitDistancePct.toFixed(2)}% bajo precio actual, anclada a S1 + ATR) hacia VENTA LIMIT R1 en ${formatPrice(sellLimitPrice, market.priceDecimals)}.`

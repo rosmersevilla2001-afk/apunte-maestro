@@ -503,7 +503,7 @@ export function evaluateMarketDirection(
   let summary = '';
   let limitGuidance = '';
 
-  if (isOverallBullish && weightedConfluence >= 52) {
+  if (isOverallBullish && weightedConfluence >= 45) {
     overallDirection = 'ALCISTA';
     // Bonus alignment clarity when all 3 timeframes agree on ALCISTA
     overallConfluence =
@@ -512,8 +512,10 @@ export function evaluateMarketDirection(
         : weightedConfluence;
     summary = `Dirección ALCISTA confirmada (${d4} 4H · ${d1} 1H · ${d15} 15M) con estructura HH/HL y confluencia técnica ${overallConfluence}/100.`;
     limitGuidance =
-      'Dirección alcista no implica compra inmediata: esperar zona BUY LIMIT favorable (S1 + ATR) y confirmación 5M cerrada.';
-  } else if (isOverallBearish && weightedConfluence >= 52) {
+      overallConfluence < 50
+        ? 'Dirección ALCISTA débil: mantener en ESPERAR hasta mayor confluencia técnica y zona BUY LIMIT favorable.'
+        : 'Dirección alcista no implica compra inmediata: esperar zona BUY LIMIT favorable (S1 + ATR) y confirmación 5M cerrada.';
+  } else if (isOverallBearish && weightedConfluence >= 45) {
     overallDirection = 'BAJISTA';
     overallConfluence =
       d4 === 'BAJISTA' && d1 === 'BAJISTA' && d15 === 'BAJISTA'

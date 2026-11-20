@@ -370,7 +370,7 @@ export function LimitOperationPanel({
             />
           </div>
           <span className="text-[11px] text-[#848E9C]">
-            Nunca se bajan los filtros 10/10 para completar la meta ni se aumenta exposición tras alcanzar $10.
+            Nunca se bajan los filtros 11/11 para completar la meta ni se aumenta exposición tras alcanzar $10.
           </span>
         </div>
       </div>
@@ -488,7 +488,7 @@ export function LimitOperationPanel({
               <div className="flex items-center gap-1.5 text-xs font-semibold text-[#0ECB81]">
                 <CheckCircle2 className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
                 <span>
-                  Plan LIMIT manual habilitado (10/10 · 4H/1H/15M + Confirmación 5M cerrada)
+                  Plan LIMIT manual habilitado (11/11 · 4H/1H/15M + Confirmación 5M cerrada + Dirección de Mercado)
                 </span>
               </div>
               {activePlan.additionalReason && (
