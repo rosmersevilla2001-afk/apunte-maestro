@@ -36,6 +36,7 @@ export default function App() {
     clearTrackedLimit,
     opportunities,
     activeOpportunity,
+    activeDirection,
     decisionsByMarket,
     activeDecision,
     limitPlansByMarket,
@@ -91,6 +92,7 @@ export default function App() {
               timeframe={timeframe}
               analysis={analysis}
               opportunity={activeOpportunity}
+              direction={activeDirection}
               decision={activeDecision}
               loading={loadingChart}
             />

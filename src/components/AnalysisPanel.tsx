@@ -18,7 +18,10 @@ import {
 import type {
   DecisionCheckStatus,
   DecisionState,
+  DirectionTimeframe,
   MarketDecision,
+  MarketDirectionAnalysis,
+  MarketDirectionLabel,
   MarketId,
   MarketOpportunity,
   TechnicalAnalysis,
@@ -31,6 +34,7 @@ interface AnalysisPanelProps {
   timeframe: Timeframe;
   analysis: TechnicalAnalysis | null;
   opportunity: MarketOpportunity | null;
+  direction: MarketDirectionAnalysis | null;
   decision: MarketDecision | null;
   loading: boolean;
 }
@@ -90,11 +94,47 @@ function checkStatusSymbol(status: DecisionCheckStatus): string {
   return '—';
 }
 
+function directionBadgeMeta(dir: MarketDirectionLabel): {
+  text: string;
+  border: string;
+  bg: string;
+} {
+  if (dir === 'ALCISTA') {
+    return {
+      text: 'text-[#0ECB81]',
+      border: 'border-[#0ECB81]/35',
+      bg: 'bg-[#0ECB81]/10',
+    };
+  }
+  if (dir === 'BAJISTA') {
+    return {
+      text: 'text-[#F6465D]',
+      border: 'border-[#F6465D]/35',
+      bg: 'bg-[#F6465D]/10',
+    };
+  }
+  if (dir === 'LATERAL') {
+    return {
+      text: 'text-[#F0B90B]',
+      border: 'border-[#F0B90B]/35',
+      bg: 'bg-[#F0B90B]/10',
+    };
+  }
+  return {
+    text: 'text-[#848E9C]',
+    border: 'border-[#242D3D]',
+    bg: 'bg-[#171D29]',
+  };
+}
+
+const DIRECTION_TFS: DirectionTimeframe[] = ['4h', '1h', '15m'];
+
 export function AnalysisPanel({
   marketId,
   timeframe,
   analysis,
   opportunity,
+  direction,
   decision,
   loading,
 }: AnalysisPanelProps) {
@@ -376,7 +416,7 @@ export function AnalysisPanel({
             </div>
           </div>
 
-          {/* 10-Condition Auditable Checklist */}
+          {/* 10+ Condition Auditable Checklist */}
           <div className="mt-3 grid grid-cols-1 gap-x-4 gap-y-1 border-t border-[#1A212E] pt-2.5 font-mono tabular-nums text-[11px] sm:grid-cols-2 lg:grid-cols-3">
             {decision.checks.map((chk) => (
               <div key={chk.id} className="flex items-center justify-between gap-2">
@@ -389,6 +429,145 @@ export function AnalysisPanel({
                 <span className={`shrink-0 ${checkStatusTone(chk.status)}`}>{chk.detail}</span>
               </div>
             ))}
+          </div>
+        </div>
+      )}
+
+      {/* Real Market Direction Detector (4H / 1H / 15M closed candles only) */}
+      {direction && (
+        <div className="border-b border-[#1F2735] bg-[#11161F] px-4 py-3.5">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="flex flex-wrap items-center gap-2">
+              <h3 className="font-display text-xs font-semibold text-[#EAECEF]">
+                Detector de Dirección de Mercado
+              </h3>
+              <span className="text-[11px] text-[#848E9C]">
+                · 4H, 1H y 15M por separado (solo velas cerradas)
+              </span>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2 font-mono tabular-nums text-xs">
+              <span
+                className={`rounded border px-2 py-0.5 font-display text-[11px] font-bold tracking-wide ${
+                  directionBadgeMeta(direction.overallDirection).border
+                } ${directionBadgeMeta(direction.overallDirection).bg} ${
+                  directionBadgeMeta(direction.overallDirection).text
+                }`}
+              >
+                {direction.overallDirection}
+              </span>
+              <span className="text-[#B7BDC6]">
+                Fuerza:{' '}
+                <strong className="text-[#EAECEF]">
+                  {direction.overallStrength ?? NO_DATA_LABEL}
+                </strong>
+              </span>
+              <span className="text-[#2A3446]" aria-hidden="true">
+                |
+              </span>
+              <span className="text-[#B7BDC6]">
+                Confluencia:{' '}
+                <strong className={directionBadgeMeta(direction.overallDirection).text}>
+                  {direction.overallConfluence !== null
+                    ? `${direction.overallConfluence}/100`
+                    : NO_DATA_LABEL}
+                </strong>
+              </span>
+            </div>
+          </div>
+
+          <p className="mt-1.5 text-[11px] text-[#848E9C]">
+            {direction.limitGuidance}
+          </p>
+
+          <div className="mt-2.5 grid grid-cols-1 gap-2.5 md:grid-cols-3">
+            {DIRECTION_TFS.map((tf) => {
+              const item = direction.timeframes[tf];
+              const meta = directionBadgeMeta(item.direction);
+              return (
+                <div
+                  key={tf}
+                  className="rounded border border-[#1F2735] bg-[#0E131B] px-3 py-2.5"
+                >
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-1.5">
+                      <span className="font-mono text-xs font-bold text-[#EAECEF]">
+                        {tf.toUpperCase()}
+                      </span>
+                      <span className="text-[10px] text-[#848E9C]">({item.roleLabel})</span>
+                    </div>
+                    <span
+                      className={`rounded border px-1.5 py-0.5 font-display text-[10px] font-bold ${meta.border} ${meta.bg} ${meta.text}`}
+                    >
+                      {item.direction}
+                    </span>
+                  </div>
+
+                  {!item.isValid ? (
+                    <p className="mt-2 font-mono text-[11px] text-[#848E9C]">
+                      {item.invalidReason ?? NO_DATA_LABEL}
+                    </p>
+                  ) : (
+                    <dl className="mt-2 space-y-1 font-mono tabular-nums text-[11px]">
+                      <div className="flex items-center justify-between gap-2">
+                        <dt className="font-sans text-[#848E9C]">Fuerza / Confluencia</dt>
+                        <dd className="text-[#EAECEF]">
+                          {item.strength ?? NO_DATA_LABEL} ·{' '}
+                          <span className={`font-semibold ${meta.text}`}>
+                            {item.confluence !== null ? `${item.confluence}/100` : NO_DATA_LABEL}
+                          </span>
+                        </dd>
+                      </div>
+                      <div className="flex items-center justify-between gap-2">
+                        <dt className="font-sans text-[#848E9C]">Estructura</dt>
+                        <dd className="text-[#EAECEF]">
+                          {item.swingStructure ?? NO_DATA_LABEL}
+                        </dd>
+                      </div>
+                      <div className="flex items-center justify-between gap-2">
+                        <dt className="font-sans text-[#848E9C]">Pend. MA7 / MA25</dt>
+                        <dd className="text-[#B7BDC6]">
+                          {item.ma7SlopePct !== null
+                            ? formatSignedPercent(item.ma7SlopePct)
+                            : NO_DATA_LABEL}{' '}
+                          /{' '}
+                          {item.ma25SlopePct !== null
+                            ? formatSignedPercent(item.ma25SlopePct)
+                            : NO_DATA_LABEL}
+                        </dd>
+                      </div>
+                      <div className="flex items-center justify-between gap-2">
+                        <dt className="font-sans text-[#848E9C]">RSI(14) / ROC(10)</dt>
+                        <dd className="text-[#B7BDC6]">
+                          {item.rsi14 !== null ? item.rsi14.toFixed(1) : NO_DATA_LABEL} ·{' '}
+                          {item.roc10 !== null ? formatSignedPercent(item.roc10) : NO_DATA_LABEL}
+                        </dd>
+                      </div>
+                      <div className="flex items-center justify-between gap-2">
+                        <dt className="font-sans text-[#848E9C]">Vol. rel. / ATR</dt>
+                        <dd className="text-[#B7BDC6]">
+                          {item.relativeVolume !== null
+                            ? `${item.relativeVolume.toFixed(2)}x`
+                            : NO_DATA_LABEL}{' '}
+                          ·{' '}
+                          {item.volatilityPct !== null
+                            ? `${item.volatilityPct.toFixed(3)}%`
+                            : NO_DATA_LABEL}
+                        </dd>
+                      </div>
+                      <div className="flex items-center justify-between gap-2">
+                        <dt className="font-sans text-[#848E9C]">Libro (Bids)</dt>
+                        <dd className="text-[#B7BDC6]">
+                          {item.bidPressurePct !== null
+                            ? `${item.bidPressurePct.toFixed(0)}%`
+                            : NO_DATA_LABEL}
+                        </dd>
+                      </div>
+                    </dl>
+                  )}
+                </div>
+              );
+            })}
           </div>
         </div>
       )}

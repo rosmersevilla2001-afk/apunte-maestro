@@ -7,6 +7,7 @@ import type {
   LimitOperationState,
   LimitPlanConfig,
   MarketDecision,
+  MarketDirectionAnalysis,
   MarketOpportunity,
   TrackedLimitOperation,
 } from '../../types/market';
@@ -87,7 +88,8 @@ export function evaluateLimitOperationPlan(
   feeConfig: FeeConfig,
   dailyStats: DailyAccumulatedStats,
   isBinanceLive: boolean,
-  trackedOperation?: TrackedLimitOperation | null
+  trackedOperation?: TrackedLimitOperation | null,
+  marketDirection?: MarketDirectionAnalysis | null
 ): LimitOperationPlan {
   const market = MARKET_MAP[opp.marketId];
 
@@ -341,11 +343,39 @@ export function evaluateLimitOperationPlan(
   if (isStructurallyInvalidated && invalidationReason) {
     state = 'INVALIDADA';
     blockingReasons.push(invalidationReason);
+  } else if (
+    marketDirection !== undefined &&
+    (!marketDirection ||
+      !marketDirection.isValid ||
+      marketDirection.overallDirection === 'SIN DATOS')
+  ) {
+    state = 'NO COMPRAR';
+    blockingReasons.push(
+      marketDirection?.invalidReason ??
+        'Dirección de Mercado en SIN DATOS (4H/1H/15M): no se genera señal LIMIT.'
+    );
+  } else if (
+    marketDirection !== undefined &&
+    marketDirection.overallDirection === 'BAJISTA'
+  ) {
+    state = 'NO COMPRAR';
+    blockingReasons.push(
+      `Filtro de Dirección de Mercado BAJISTA (${marketDirection.overallStrength ?? ''} · ${marketDirection.overallConfluence ?? 0}/100): bloquea COMPRAR LIMIT.`
+    );
   } else if (decision.state === 'NO TRADE') {
     state = 'NO COMPRAR';
     blockingReasons.push(
       decision.blockingConditions[0] ??
         'Motor de Decisión en 🔴 NO COMPRAR: condición estructural, liquidez o datos 5M impiden operar.'
+    );
+  } else if (
+    marketDirection !== undefined &&
+    (marketDirection.overallDirection !== 'ALCISTA' ||
+      marketDirection.overallStrength === 'Débil')
+  ) {
+    state = 'ESPERAR';
+    blockingReasons.push(
+      `Dirección de Mercado ${marketDirection.overallDirection}${marketDirection.overallStrength ? ` (${marketDirection.overallStrength})` : ''}: esperar estructura HH/HL y confluencia alcista suficiente antes de COMPRAR LIMIT.`
     );
   } else if (decision.state === 'WAIT') {
     state = 'ESPERAR';

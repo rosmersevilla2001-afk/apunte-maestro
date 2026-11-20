@@ -499,5 +499,54 @@ export interface LimitOperationPlan {
   updatedAt: number | null;
 }
 
+export type DirectionTimeframe = '4h' | '1h' | '15m';
 
+export type MarketDirectionLabel = 'ALCISTA' | 'BAJISTA' | 'LATERAL' | 'SIN DATOS';
 
+export type MarketDirectionStrength = 'Débil' | 'Moderada' | 'Fuerte';
+
+export type SwingStructureType =
+  | 'HH/HL'
+  | 'LH/LL'
+  | 'LH/HL'
+  | 'HH/LL'
+  | 'Sin estructura clara';
+
+export interface TimeframeDirectionResult {
+  timeframe: DirectionTimeframe;
+  roleLabel: 'Contexto' | 'Tendencia' | 'Setup';
+  isValid: boolean;
+  invalidReason: string | null;
+  direction: MarketDirectionLabel;
+  strength: MarketDirectionStrength | null;
+  confluence: number | null; // 0..100 technical confluence (NOT win probability)
+  swingStructure: SwingStructureType | null;
+  maAlignment: string | null;
+  ma7SlopePct: number | null;
+  ma25SlopePct: number | null;
+  ma99SlopePct: number | null;
+  rsi14: number | null;
+  roc10: number | null;
+  relativeVolume: number | null;
+  atr14: number | null;
+  volatilityPct: number | null;
+  volatilityRating: VolatilityRating | null;
+  s1: PriceLevel | null;
+  r1: PriceLevel | null;
+  bidPressurePct: number | null;
+  closedCandlesUsed: number;
+  summary: string;
+}
+
+export interface MarketDirectionAnalysis {
+  marketId: MarketId;
+  isValid: boolean;
+  invalidReason: string | null;
+  overallDirection: MarketDirectionLabel;
+  overallStrength: MarketDirectionStrength | null;
+  overallConfluence: number | null; // 0..100 technical confluence (NOT win probability)
+  timeframes: Record<DirectionTimeframe, TimeframeDirectionResult>;
+  summary: string;
+  limitGuidance: string;
+  updatedAt: number | null;
+}

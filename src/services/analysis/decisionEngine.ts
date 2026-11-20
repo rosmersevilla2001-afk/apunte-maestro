@@ -5,6 +5,7 @@ import type {
   DecisionCheck,
   DecisionState,
   MarketDecision,
+  MarketDirectionAnalysis,
   MarketOpportunity,
   TechnicalEntryZone,
 } from '../../types/market';
@@ -256,7 +257,8 @@ function evaluateFiveMinuteConfirmation(
 export function evaluateMarketDecision(
   opp: MarketOpportunity,
   isBinanceLive: boolean,
-  candles5m?: Candle[]
+  candles5m?: Candle[],
+  marketDirection?: MarketDirectionAnalysis | null
 ): MarketDecision {
   const market = MARKET_MAP[opp.marketId];
   const checks: DecisionCheck[] = [];
@@ -280,6 +282,16 @@ export function evaluateMarketDecision(
       { id: 'prev_day', label: 'Día anterior', status: 'no_data', detail: NO_DATA_LABEL },
       { id: 'net_pot', label: 'Potencial neto', status: 'no_data', detail: NO_DATA_LABEL },
       { id: 'confirm_5m', label: 'Confirmación 5M', status: 'no_data', detail: NO_DATA_LABEL },
+      ...(marketDirection !== undefined
+        ? [
+            {
+              id: 'market_direction',
+              label: 'Dirección de Mercado',
+              status: 'no_data' as const,
+              detail: 'SIN DATOS',
+            },
+          ]
+        : []),
     ];
 
     return {
@@ -307,7 +319,7 @@ export function evaluateMarketDecision(
       },
       checks: offlineChecks,
       passedCount: 0,
-      totalChecks: 10,
+      totalChecks: offlineChecks.length,
       updatedAt: opp.updatedAt,
     };
   }
@@ -733,6 +745,76 @@ export function evaluateMarketDecision(
     hasContradictionOrWait = true;
     if (confirm5m.blockingReason) {
       blockingConditions.push(confirm5m.blockingReason);
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // 11. Detector de Dirección de Mercado (filtro adicional 4H/1H/15M cerrado)
+  //     Una dirección ALCISTA NO implica compra inmediata: exige zona LIMIT favorable
+  //     y confluencia completa. Si faltan datos -> SIN DATOS y sin señal.
+  // ---------------------------------------------------------------------------
+  if (marketDirection !== undefined) {
+    if (
+      !marketDirection ||
+      !marketDirection.isValid ||
+      marketDirection.overallDirection === 'SIN DATOS' ||
+      marketDirection.overallConfluence === null ||
+      marketDirection.overallStrength === null
+    ) {
+      hasHardNoTrade = true;
+      checks.push({
+        id: 'market_direction',
+        label: 'Dirección de Mercado',
+        status: 'no_data',
+        detail: 'SIN DATOS',
+      });
+      blockingConditions.push(
+        marketDirection?.invalidReason ??
+          'Detector de Dirección de Mercado en SIN DATOS (4H/1H/15M): no se genera señal.'
+      );
+    } else if (marketDirection.overallDirection === 'BAJISTA') {
+      hasHardNoTrade = true;
+      checks.push({
+        id: 'market_direction',
+        label: 'Dirección de Mercado',
+        status: 'block',
+        detail: `BAJISTA · ${marketDirection.overallStrength} (${marketDirection.overallConfluence}/100)`,
+      });
+      blockingConditions.push(
+        `Dirección de Mercado BAJISTA (${marketDirection.overallStrength}, confluencia ${marketDirection.overallConfluence}/100 en 4H/1H/15M): bloquea COMPRAR LIMIT.`
+      );
+    } else if (marketDirection.overallDirection === 'LATERAL') {
+      hasContradictionOrWait = true;
+      checks.push({
+        id: 'market_direction',
+        label: 'Dirección de Mercado',
+        status: 'warn',
+        detail: `LATERAL · ${marketDirection.overallStrength} (${marketDirection.overallConfluence}/100)`,
+      });
+      blockingConditions.push(
+        `Dirección de Mercado LATERAL (confluencia ${marketDirection.overallConfluence}/100): estructura contradictoria o sin confirmación HH/HL suficiente.`
+      );
+    } else if (marketDirection.overallStrength === 'Débil') {
+      hasContradictionOrWait = true;
+      checks.push({
+        id: 'market_direction',
+        label: 'Dirección de Mercado',
+        status: 'warn',
+        detail: `ALCISTA · Débil (${marketDirection.overallConfluence}/100)`,
+      });
+      blockingConditions.push(
+        `Dirección de Mercado ALCISTA débil (${marketDirection.overallConfluence}/100): esperar mayor confluencia técnica y zona LIMIT favorable.`
+      );
+    } else {
+      checks.push({
+        id: 'market_direction',
+        label: 'Dirección de Mercado',
+        status: 'pass',
+        detail: `ALCISTA · ${marketDirection.overallStrength} (${marketDirection.overallConfluence}/100)`,
+      });
+      activationReasons.push(
+        `Dirección de Mercado ALCISTA (${marketDirection.overallStrength} · ${marketDirection.overallConfluence}/100 en 4H/1H/15M), habilitando espera de zona LIMIT favorable.`
+      );
     }
   }
 

@@ -6,6 +6,7 @@ import {
   evaluateLimitOperationPlan,
   getLocalDateKey,
 } from '../services/analysis/limitOperationEngine';
+import { evaluateMarketDirection } from '../services/analysis/marketDirectionEngine';
 import { rankMarketOpportunities } from '../services/analysis/opportunityEngine';
 import { computeTechnicalAnalysis } from '../services/analysis/technicalAnalysis';
 import {
@@ -23,6 +24,7 @@ import type {
   LimitOperationPlan,
   LimitPlanConfig,
   MarketDecision,
+  MarketDirectionAnalysis,
   MarketId,
   MarketOpportunity,
   OrderBookData,
@@ -59,6 +61,8 @@ export interface UseBinanceMarketResult {
   clearTrackedLimit: (id: MarketId) => void;
   opportunities: MarketOpportunity[];
   activeOpportunity: MarketOpportunity | null;
+  directionsByMarket: Record<MarketId, MarketDirectionAnalysis>;
+  activeDirection: MarketDirectionAnalysis | null;
   decisionsByMarket: Record<MarketId, MarketDecision>;
   activeDecision: MarketDecision | null;
   limitPlansByMarket: Record<MarketId, LimitOperationPlan>;
@@ -743,14 +747,31 @@ export function useBinanceMarket(): UseBinanceMarketResult {
   ]);
 
   // Decision Engine evaluated strictly from real Binance opportunity data + real 5M timing confirmation
+  // Real Market Direction Detector (4H, 1H, 15M closed candles only; never unclosed 5M)
+  const directionsByMarket: Record<MarketId, MarketDirectionAnalysis> = useMemo(() => {
+    const map = {} as Record<MarketId, MarketDirectionAnalysis>;
+    for (const m of MARKETS) {
+      map[m.id] = evaluateMarketDirection(
+        m.id,
+        candlesByMarket[m.id] ?? {},
+        orderBooksByMarket[m.id] ?? null,
+        connectionInfo.isLive
+      );
+    }
+    return map;
+  }, [candlesByMarket, orderBooksByMarket, connectionInfo.isLive]);
+
+  const activeDirection = directionsByMarket[marketId] ?? null;
+
   const decisionsByMarket: Record<MarketId, MarketDecision> = useMemo(() => {
     const map = {} as Record<MarketId, MarketDecision>;
     for (const opp of opportunities) {
       const candles5m = candlesByMarket[opp.marketId]?.['5m'];
-      map[opp.marketId] = evaluateMarketDecision(opp, connectionInfo.isLive, candles5m);
+      const dir = directionsByMarket[opp.marketId] ?? null;
+      map[opp.marketId] = evaluateMarketDecision(opp, connectionInfo.isLive, candles5m, dir);
     }
     return map;
-  }, [opportunities, connectionInfo.isLive, candlesByMarket]);
+  }, [opportunities, connectionInfo.isLive, candlesByMarket, directionsByMarket]);
 
   const activeOpportunity = useMemo(
     () => opportunities.find((o) => o.marketId === marketId) ?? null,
@@ -778,7 +799,8 @@ export function useBinanceMarket(): UseBinanceMarketResult {
           feeConfig,
           dailyStats,
           connectionInfo.isLive,
-          trackedLimitsByMarket[opp.marketId] ?? null
+          trackedLimitsByMarket[opp.marketId] ?? null,
+          directionsByMarket[opp.marketId] ?? null
         );
       }
     }
@@ -791,6 +813,7 @@ export function useBinanceMarket(): UseBinanceMarketResult {
     dailyStats,
     connectionInfo.isLive,
     trackedLimitsByMarket,
+    directionsByMarket,
   ]);
 
   const activeLimitPlan = limitPlansByMarket[marketId] ?? null;
@@ -821,6 +844,8 @@ export function useBinanceMarket(): UseBinanceMarketResult {
     clearTrackedLimit,
     opportunities,
     activeOpportunity,
+    directionsByMarket,
+    activeDirection,
     decisionsByMarket,
     activeDecision,
     limitPlansByMarket,
