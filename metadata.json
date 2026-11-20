@@ -1,0 +1,6 @@
+{
+  "name": "SPOT MASTER",
+  "description": "Plataforma profesional de análisis de trading Spot de Binance para USDT/COP, USDT/BRL, USDT/MXN y USDT/EUR con datos en tiempo real.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
