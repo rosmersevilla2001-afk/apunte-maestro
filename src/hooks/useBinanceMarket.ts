@@ -8,7 +8,6 @@ import {
 } from '../services/analysis/limitOperationEngine';
 import { rankMarketOpportunities } from '../services/analysis/opportunityEngine';
 import { computeTechnicalAnalysis } from '../services/analysis/technicalAnalysis';
-import { simulateMarketTrade } from '../services/analysis/tradeSimulator';
 import {
   fetchAllMarketTickers,
   fetchKlines,
@@ -32,7 +31,6 @@ import type {
   Ticker24h,
   Timeframe,
   TrackedLimitOperation,
-  TradeSimulation,
 } from '../types/market';
 
 export interface UseBinanceMarketResult {
@@ -51,7 +49,6 @@ export interface UseBinanceMarketResult {
   feeConfig: FeeConfig;
   setFeeConfig: (next: FeeConfig) => void;
   simulationConfig: SimulationConfig;
-  setSimulationConfig: (next: SimulationConfig) => void;
   limitConfig: LimitPlanConfig;
   setLimitConfig: (next: LimitPlanConfig) => void;
   dailyStats: DailyAccumulatedStats;
@@ -66,8 +63,6 @@ export interface UseBinanceMarketResult {
   activeDecision: MarketDecision | null;
   limitPlansByMarket: Record<MarketId, LimitOperationPlan>;
   activeLimitPlan: LimitOperationPlan | null;
-  simulationsByMarket: Record<MarketId, TradeSimulation>;
-  activeSimulation: TradeSimulation | null;
   loadingRanking: boolean;
   loadingInitial: boolean;
   loadingChart: boolean;
@@ -93,17 +88,22 @@ export function useBinanceMarket(): UseBinanceMarketResult {
     buyFeePct: 0.1,
     sellFeePct: 0.1,
   });
-  const [simulationConfig, setSimulationConfig] = useState<SimulationConfig>({
-    availableCapitalUsdt: 1300,
-    capitalAllocationPct: 10,
-  });
-  const [limitConfig, setLimitConfigState] = useState<LimitPlanConfig>({
+  const [limitConfig, setLimitConfig] = useState<LimitPlanConfig>({
     baseCapitalUsdt: 1300,
     maxExposurePct: 35,
     dailyTargetMinUsdt: 6,
     dailyTargetMaxUsdt: 10,
     minNetProfitUsdt: 2,
   });
+
+  // Derived strictly for untouched BacktestingPanel compatibility (not used operationally)
+  const simulationConfig: SimulationConfig = useMemo(
+    () => ({
+      availableCapitalUsdt: limitConfig.baseCapitalUsdt,
+      capitalAllocationPct: 10,
+    }),
+    [limitConfig.baseCapitalUsdt]
+  );
 
   const todayKey = getLocalDateKey();
   const [dailyRealizedUsdt, setDailyRealizedUsdt] = useState<number>(() => {
@@ -119,15 +119,6 @@ export function useBinanceMarket(): UseBinanceMarketResult {
   const [trackedLimitsByMarket, setTrackedLimitsByMarket] = useState<
     Partial<Record<MarketId, TrackedLimitOperation>>
   >({});
-
-  const setLimitConfig = useCallback((next: LimitPlanConfig) => {
-    setLimitConfigState(next);
-    // Keep base capital mirrored for the untouched backtest panel
-    setSimulationConfig((prev) => ({
-      ...prev,
-      availableCapitalUsdt: next.baseCapitalUsdt,
-    }));
-  }, []);
 
   const recordDailyProfit = useCallback(
     (deltaUsdt: number) => {
@@ -804,26 +795,6 @@ export function useBinanceMarket(): UseBinanceMarketResult {
 
   const activeLimitPlan = limitPlansByMarket[marketId] ?? null;
 
-  // Kept strictly for compatibility with untouched backtest engine
-  const simulationsByMarket: Record<MarketId, TradeSimulation> = useMemo(() => {
-    const map = {} as Record<MarketId, TradeSimulation>;
-    for (const opp of opportunities) {
-      const dec = decisionsByMarket[opp.marketId];
-      if (dec) {
-        map[opp.marketId] = simulateMarketTrade(
-          opp,
-          dec,
-          simulationConfig,
-          feeConfig,
-          connectionInfo.isLive
-        );
-      }
-    }
-    return map;
-  }, [opportunities, decisionsByMarket, simulationConfig, feeConfig, connectionInfo.isLive]);
-
-  const activeSimulation = simulationsByMarket[marketId] ?? null;
-
   return {
     marketId,
     timeframe,
@@ -840,7 +811,6 @@ export function useBinanceMarket(): UseBinanceMarketResult {
     feeConfig,
     setFeeConfig,
     simulationConfig,
-    setSimulationConfig,
     limitConfig,
     setLimitConfig,
     dailyStats,
@@ -855,8 +825,6 @@ export function useBinanceMarket(): UseBinanceMarketResult {
     activeDecision,
     limitPlansByMarket,
     activeLimitPlan,
-    simulationsByMarket,
-    activeSimulation,
     loadingRanking,
     loadingInitial,
     loadingChart,
