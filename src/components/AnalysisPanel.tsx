@@ -51,7 +51,7 @@ function decisionMeta(state: DecisionState): {
 } {
   if (state === 'BUY') {
     return {
-      label: '🟢 BUY',
+      label: '🟢 COMPRAR LIMIT',
       text: 'text-[#0ECB81]',
       dot: 'bg-[#0ECB81]',
       border: 'border-[#0ECB81]/35',
@@ -60,7 +60,7 @@ function decisionMeta(state: DecisionState): {
   }
   if (state === 'WAIT') {
     return {
-      label: '🟡 WAIT',
+      label: '🟡 ESPERAR',
       text: 'text-[#F0B90B]',
       dot: 'bg-[#F0B90B]',
       border: 'border-[#F0B90B]/35',
@@ -68,7 +68,7 @@ function decisionMeta(state: DecisionState): {
     };
   }
   return {
-    label: '🔴 NO TRADE',
+    label: '🔴 NO COMPRAR',
     text: 'text-[#F6465D]',
     dot: 'bg-[#F6465D]',
     border: 'border-[#F6465D]/35',
@@ -272,7 +272,7 @@ export function AnalysisPanel({
                 <div>
                   <h3 className="flex items-center gap-1.5 text-[11px] font-medium text-[#0ECB81]">
                     <CheckCircle2 className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
-                    <span>Razones que activaron BUY</span>
+                    <span>Razones que activaron COMPRAR LIMIT</span>
                   </h3>
                   <ul className="mt-1 space-y-0.5 text-xs text-[#B7BDC6]">
                     {decision.activationReasons.map((reason, idx) => (
@@ -307,7 +307,7 @@ export function AnalysisPanel({
                   <AlertTriangle className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
                 )}
                 <span>
-                  Condiciones que impidieron la entrada ({decision.state})
+                  Condiciones que impidieron la entrada ({decStyle.label})
                 </span>
               </h3>
               <ul className="mt-1.5 space-y-1 text-xs text-[#B7BDC6]">
@@ -320,8 +320,64 @@ export function AnalysisPanel({
             </div>
           )}
 
-          {/* 9-Condition Auditable Checklist */}
-          <div className="mt-3 grid grid-cols-1 gap-x-4 gap-y-1 border-t border-[#1A212E] pt-2.5 font-mono tabular-nums text-[11px] sm:grid-cols-3">
+          {/* Dedicated Final Entry Timing Filter: Confirmación 5M */}
+          <div className="mt-3 rounded border border-[#1F2735] bg-[#11161F] px-3 py-2">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="flex flex-wrap items-center gap-2 text-xs">
+                <span className="font-display font-semibold text-[#EAECEF]">
+                  Confirmación 5M
+                </span>
+                <span className="text-[11px] text-[#848E9C]">
+                  (timing final · 4H/1H/15M siguen siendo principales)
+                </span>
+              </div>
+              <span
+                className={`rounded border px-1.5 py-0.5 font-mono text-[11px] font-semibold ${
+                  decision.confirmation5m.status === 'pass'
+                    ? 'border-[#0ECB81]/35 bg-[#0ECB81]/10 text-[#0ECB81]'
+                    : decision.confirmation5m.status === 'warn'
+                      ? 'border-[#F0B90B]/35 bg-[#F0B90B]/10 text-[#F0B90B]'
+                      : 'border-[#F6465D]/35 bg-[#F6465D]/10 text-[#F6465D]'
+                }`}
+              >
+                {decision.confirmation5m.statusLabel}
+              </span>
+            </div>
+
+            <div className="mt-1.5 flex flex-wrap items-center gap-x-4 gap-y-1 font-mono tabular-nums text-[11px] text-[#B7BDC6]">
+              <span>
+                Tendencia:{' '}
+                <strong className={trendTone(decision.confirmation5m.trend)}>
+                  {decision.confirmation5m.trend ?? NO_DATA_LABEL}
+                </strong>
+              </span>
+              <span>
+                RSI(14):{' '}
+                <strong className="text-[#EAECEF]">
+                  {decision.confirmation5m.rsi14 !== null
+                    ? decision.confirmation5m.rsi14.toFixed(1)
+                    : NO_DATA_LABEL}
+                </strong>
+              </span>
+              <span>
+                ROC(10):{' '}
+                <strong className="text-[#EAECEF]">
+                  {decision.confirmation5m.roc10 !== null
+                    ? formatSignedPercent(decision.confirmation5m.roc10)
+                    : NO_DATA_LABEL}
+                </strong>
+              </span>
+              <span>
+                Últ. vela cerrada:{' '}
+                <strong className="font-sans font-medium text-[#EAECEF]">
+                  {decision.confirmation5m.lastCandlePattern ?? NO_DATA_LABEL}
+                </strong>
+              </span>
+            </div>
+          </div>
+
+          {/* 10-Condition Auditable Checklist */}
+          <div className="mt-3 grid grid-cols-1 gap-x-4 gap-y-1 border-t border-[#1A212E] pt-2.5 font-mono tabular-nums text-[11px] sm:grid-cols-2 lg:grid-cols-3">
             {decision.checks.map((chk) => (
               <div key={chk.id} className="flex items-center justify-between gap-2">
                 <span className="truncate text-[#848E9C]">

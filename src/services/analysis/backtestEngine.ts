@@ -21,6 +21,7 @@ const MIN_15M_WARMUP_BARS = 99;
 const MIN_15M_TOTAL_FOR_TEST = 110;
 const MIN_1H_CANDLES = 48;
 const MIN_4H_CANDLES = 26;
+const BAR_5M_SECONDS = 300;
 const BAR_15M_SECONDS = 900;
 const BAR_1H_SECONDS = 3600;
 const BAR_4H_SECONDS = 14400;
@@ -200,10 +201,12 @@ export function runHistoricalBacktest(
   const market = MARKET_MAP[marketId];
 
   // Use ONLY strictly closed historical candles (never evaluate an incomplete forming bar)
+  const raw5m = candlesByTimeframe['5m'] ?? [];
   const raw15m = candlesByTimeframe['15m'] ?? [];
   const raw1h = candlesByTimeframe['1h'] ?? [];
   const raw4h = candlesByTimeframe['4h'] ?? [];
 
+  const closed5m = raw5m.filter((c) => c.isClosed);
   const closed15m = raw15m.filter((c) => c.isClosed);
   const closed1h = raw1h.filter((c) => c.isClosed);
   const closed4h = raw4h.filter((c) => c.isClosed);
@@ -401,6 +404,7 @@ export function runHistoricalBacktest(
     // -------------------------------------------------------------------------
     // Step 2: Strictly point-in-time historical slice (ZERO future data)
     // -------------------------------------------------------------------------
+    const slice5m = closed5m.filter((c) => c.time + BAR_5M_SECONDS <= barCloseSec);
     const slice15m = closed15m.slice(0, i + 1);
     const slice1h = buildCausalHigherTimeframe(closed1h, slice15m, BAR_1H_SECONDS, barCloseSec);
     const slice4h = buildCausalHigherTimeframe(closed4h, slice15m, BAR_4H_SECONDS, barCloseSec);
@@ -408,7 +412,7 @@ export function runHistoricalBacktest(
     const histTicker = buildHistoricalTicker(marketId, bar, spreadPct, barCloseMs);
     const histBook = buildHistoricalOrderBook(liveOrderBook, bar.close, spreadPct, barCloseMs);
 
-    // Execute EXACT unmodified Opportunity Engine, Decision Engine & Risk Simulator
+    // Execute EXACT unmodified Opportunity Engine, Decision Engine (with causal 5M timing) & Risk Simulator
     const opp = evaluateMarketOpportunity(
       {
         marketId,
@@ -426,7 +430,7 @@ export function runHistoricalBacktest(
       barCloseMs
     );
 
-    const decision = evaluateMarketDecision(opp, true);
+    const decision = evaluateMarketDecision(opp, true, slice5m);
     const sim = simulateMarketTrade(
       opp,
       decision,

@@ -2,11 +2,11 @@ import { AnalysisPanel } from './components/AnalysisPanel';
 import { BacktestingPanel } from './components/BacktestingPanel';
 import { CandlestickChart } from './components/CandlestickChart';
 import { ConnectionPanel } from './components/ConnectionPanel';
+import { LimitOperationPanel } from './components/LimitOperationPanel';
 import { MarketStrip } from './components/MarketStrip';
 import { OpportunityRankingPanel } from './components/OpportunityRankingPanel';
 import { OrderBook } from './components/OrderBook';
 import { TopBar } from './components/TopBar';
-import { TradeSimulationPanel } from './components/TradeSimulationPanel';
 import { useBinanceMarket } from './hooks/useBinanceMarket';
 
 export default function App() {
@@ -26,13 +26,20 @@ export default function App() {
     feeConfig,
     setFeeConfig,
     simulationConfig,
-    setSimulationConfig,
+    limitConfig,
+    setLimitConfig,
+    dailyStats,
+    recordDailyProfit,
+    resetDailyProfit,
+    trackedLimitsByMarket,
+    trackManualLimit,
+    clearTrackedLimit,
     opportunities,
     activeOpportunity,
     decisionsByMarket,
     activeDecision,
-    simulationsByMarket,
-    activeSimulation,
+    limitPlansByMarket,
+    activeLimitPlan,
     loadingRanking,
     loadingInitial,
     loadingChart,
@@ -121,17 +128,23 @@ export default function App() {
           loading={loadingRanking}
         />
 
-        {/* Trade Simulation & Risk Management Panel (Read-only simulation) */}
-        <TradeSimulationPanel
+        {/* Manual Spot LIMIT Operation Engine (replaces Stop Loss/R:R approval) */}
+        <LimitOperationPanel
           selectedMarketId={marketId}
           onSelectMarket={setMarketId}
           opportunities={opportunities}
-          simulationsByMarket={simulationsByMarket}
-          activeSimulation={activeSimulation}
-          simulationConfig={simulationConfig}
-          onChangeSimulationConfig={setSimulationConfig}
+          limitPlansByMarket={limitPlansByMarket}
+          activePlan={activeLimitPlan}
+          limitConfig={limitConfig}
+          onChangeLimitConfig={setLimitConfig}
           feeConfig={feeConfig}
           onChangeFees={setFeeConfig}
+          dailyStats={dailyStats}
+          onRecordDailyProfit={recordDailyProfit}
+          onResetDailyProfit={resetDailyProfit}
+          trackedLimitsByMarket={trackedLimitsByMarket}
+          onTrackManualLimit={trackManualLimit}
+          onClearTrackedLimit={clearTrackedLimit}
           isBinanceLive={connectionInfo.isLive}
         />
 

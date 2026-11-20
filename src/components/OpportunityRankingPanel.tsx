@@ -51,7 +51,7 @@ function decisionStyle(state: DecisionState): {
 } {
   if (state === 'BUY') {
     return {
-      label: '🟢 BUY',
+      label: '🟢 COMPRAR LIMIT',
       text: 'text-[#0ECB81]',
       border: 'border-[#0ECB81]/35',
       bg: 'bg-[#0ECB81]/10',
@@ -59,14 +59,14 @@ function decisionStyle(state: DecisionState): {
   }
   if (state === 'WAIT') {
     return {
-      label: '🟡 WAIT',
+      label: '🟡 ESPERAR',
       text: 'text-[#F0B90B]',
       border: 'border-[#F0B90B]/35',
       bg: 'bg-[#F0B90B]/10',
     };
   }
   return {
-    label: '🔴 NO TRADE',
+    label: '🔴 NO COMPRAR',
     text: 'text-[#F6465D]',
     border: 'border-[#F6465D]/35',
     bg: 'bg-[#F6465D]/10',
@@ -133,7 +133,7 @@ export function OpportunityRankingPanel({
             </span>
           </div>
           <p className="mt-0.5 text-xs text-[#848E9C]">
-            Auditoría objetiva en vivo (BUY / WAIT / NO TRADE) sin ejecución de órdenes ni conexión de fondos.
+            Auditoría objetiva en vivo (COMPRAR LIMIT / ESPERAR / NO COMPRAR) sin ejecución automática ni conexión de fondos.
           </p>
         </div>
 
@@ -659,7 +659,45 @@ export function OpportunityRankingPanel({
                     </div>
                   )}
 
-                  {/* Compact 9-condition audit bar */}
+                  {/* Dedicated Final Entry Timing Filter: Confirmación 5M */}
+                  <div className="mt-2.5 flex flex-wrap items-center justify-between gap-2 rounded border border-[#1A212E] bg-[#11161F] px-2.5 py-1.5 text-[11px]">
+                    <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 font-mono tabular-nums text-[#B7BDC6]">
+                      <span className="font-sans font-semibold text-[#EAECEF]">
+                        Confirmación 5M:
+                      </span>
+                      <span className={trendTextClass(decision.confirmation5m.trend)}>
+                        {decision.confirmation5m.trend ?? NO_DATA_LABEL}
+                      </span>
+                      <span>
+                        RSI{' '}
+                        {decision.confirmation5m.rsi14 !== null
+                          ? decision.confirmation5m.rsi14.toFixed(1)
+                          : NO_DATA_LABEL}
+                      </span>
+                      <span>
+                        ROC{' '}
+                        {decision.confirmation5m.roc10 !== null
+                          ? formatSignedPercent(decision.confirmation5m.roc10)
+                          : NO_DATA_LABEL}
+                      </span>
+                      <span className="font-sans text-[#848E9C]">
+                        Vela: {decision.confirmation5m.lastCandlePattern ?? NO_DATA_LABEL}
+                      </span>
+                    </div>
+                    <span
+                      className={`font-mono font-semibold ${
+                        decision.confirmation5m.status === 'pass'
+                          ? 'text-[#0ECB81]'
+                          : decision.confirmation5m.status === 'warn'
+                            ? 'text-[#F0B90B]'
+                            : 'text-[#F6465D]'
+                      }`}
+                    >
+                      {decision.confirmation5m.statusLabel}
+                    </span>
+                  </div>
+
+                  {/* Compact 10-condition audit bar */}
                   <div className="mt-2.5 flex flex-wrap items-center gap-x-3.5 gap-y-1 border-t border-[#1A212E] pt-2 font-mono tabular-nums text-[11px]">
                     {decision.checks.map((chk) => (
                       <span key={chk.id} className="text-[#848E9C]">

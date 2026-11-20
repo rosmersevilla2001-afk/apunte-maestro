@@ -1,15 +1,17 @@
 import { MARKET_MAP, NO_DATA_LABEL, formatPrice } from '../../config/markets';
 import type {
+  Candle,
+  Confirmation5mAnalysis,
   DecisionCheck,
   DecisionState,
   MarketDecision,
   MarketOpportunity,
   TechnicalEntryZone,
 } from '../../types/market';
+import { computeTechnicalAnalysis } from './technicalAnalysis';
 
 const MIN_OPPORTUNITY_SCORE_FOR_BUY = 68;
 const MIN_R1_DISTANCE_PCT_FOR_BUY = 0.3;
-const MIN_RR_FOR_BUY = 1.25;
 const MAX_BAND_POSITION_FOR_BUY = 0.72;
 const MIN_NET_POTENTIAL_PCT_FOR_BUY = 0.2;
 const MAX_SPREAD_PCT_FOR_BUY = 0.18;
@@ -18,13 +20,243 @@ const MIN_DEPTH_USDT_FOR_BUY = 10_000;
 const MIN_DEPTH_USDT_NO_TRADE = 3_000;
 const MIN_REL_VOL_FOR_BUY = 0.85;
 
+const MIN_5M_CANDLES_REQUIRED = 26;
+
 function clamp(v: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, v));
 }
 
+function inspectLastClosedCandle(candle: Candle): {
+  direction: 'Alcista' | 'Bajista' | 'Doji';
+  pattern: string;
+  bodyPct: number;
+  upperWickPct: number;
+  lowerWickPct: number;
+} {
+  const range = candle.high - candle.low;
+  const body = Math.abs(candle.close - candle.open);
+  const upperWick = candle.high - Math.max(candle.open, candle.close);
+  const lowerWick = Math.min(candle.open, candle.close) - candle.low;
+
+  const bodyPct = range > 0 ? (body / range) * 100 : 0;
+  const upperWickPct = range > 0 ? (upperWick / range) * 100 : 0;
+  const lowerWickPct = range > 0 ? (lowerWick / range) * 100 : 0;
+
+  let direction: 'Alcista' | 'Bajista' | 'Doji' = 'Doji';
+  if (range > 0 && bodyPct > 15) {
+    direction = candle.close >= candle.open ? 'Alcista' : 'Bajista';
+  }
+
+  let pattern = 'Sin rango de variación';
+  if (range > 0) {
+    if (bodyPct <= 18) {
+      if (lowerWickPct >= 50) pattern = 'Martillo / Rechazo inferior';
+      else if (upperWickPct >= 50) pattern = 'Estrella fugaz / Rechazo superior';
+      else pattern = 'Doji / Indecisión';
+    } else if (lowerWickPct >= 45 && candle.close >= candle.open) {
+      pattern = 'Rechazo inferior comprador';
+    } else if (upperWickPct >= 45 && candle.close < candle.open) {
+      pattern = 'Rechazo superior vendedor';
+    } else if (bodyPct >= 62) {
+      pattern =
+        candle.close >= candle.open
+          ? 'Vela alcista de impulso'
+          : 'Vela bajista de impulso';
+    } else {
+      pattern =
+        candle.close >= candle.open ? 'Vela alcista moderada' : 'Vela bajista moderada';
+    }
+  }
+
+  return { direction, pattern, bodyPct, upperWickPct, lowerWickPct };
+}
+
+function evaluateFiveMinuteConfirmation(
+  candles5m: Candle[] | undefined
+): {
+  analysis: Confirmation5mAnalysis;
+  check: DecisionCheck;
+  activationReason: string | null;
+  blockingReason: string | null;
+  missingData: boolean;
+} {
+  if (!candles5m || candles5m.length < MIN_5M_CANDLES_REQUIRED) {
+    const missingReason =
+      'Faltan datos reales de 5M para confirmar el timing de entrada (velas 5M insuficientes).';
+    return {
+      analysis: {
+        status: 'no_data',
+        statusLabel: 'Sin datos',
+        trend: null,
+        rsi14: null,
+        roc10: null,
+        lastCandleDirection: null,
+        lastCandlePattern: null,
+        summary: missingReason,
+      },
+      check: {
+        id: 'confirm_5m',
+        label: 'Confirmación 5M',
+        status: 'no_data',
+        detail: NO_DATA_LABEL,
+      },
+      activationReason: null,
+      blockingReason: missingReason,
+      missingData: true,
+    };
+  }
+
+  const closed5m = candles5m.filter((c) => c.isClosed);
+  if (closed5m.length < MIN_5M_CANDLES_REQUIRED) {
+    const missingReason =
+      'Faltan velas cerradas reales de 5M para confirmar el timing de entrada.';
+    return {
+      analysis: {
+        status: 'no_data',
+        statusLabel: 'Sin datos',
+        trend: null,
+        rsi14: null,
+        roc10: null,
+        lastCandleDirection: null,
+        lastCandlePattern: null,
+        summary: missingReason,
+      },
+      check: {
+        id: 'confirm_5m',
+        label: 'Confirmación 5M',
+        status: 'no_data',
+        detail: NO_DATA_LABEL,
+      },
+      activationReason: null,
+      blockingReason: missingReason,
+      missingData: true,
+    };
+  }
+
+  const lastClosedCandle = closed5m[closed5m.length - 1];
+  // Strictly closed 5M candles ONLY (never using an unclosed forming 5M bar)
+  const tech5m = computeTechnicalAnalysis('5m', { '5m': closed5m }, null, null);
+
+  if (
+    !lastClosedCandle ||
+    !tech5m ||
+    tech5m.trend === null ||
+    tech5m.rsi14 === null ||
+    tech5m.roc10 === null
+  ) {
+    const missingReason =
+      'Faltan indicadores reales en 5M (tendencia, RSI(14), ROC(10) o última vela cerrada).';
+    return {
+      analysis: {
+        status: 'no_data',
+        statusLabel: 'Sin datos',
+        trend: tech5m?.trend ?? null,
+        rsi14: tech5m?.rsi14 ?? null,
+        roc10: tech5m?.roc10 ?? null,
+        lastCandleDirection: null,
+        lastCandlePattern: null,
+        summary: missingReason,
+      },
+      check: {
+        id: 'confirm_5m',
+        label: 'Confirmación 5M',
+        status: 'no_data',
+        detail: NO_DATA_LABEL,
+      },
+      activationReason: null,
+      blockingReason: missingReason,
+      missingData: true,
+    };
+  }
+
+  const trend = tech5m.trend;
+  const rsi14 = tech5m.rsi14;
+  const roc10 = tech5m.roc10;
+  const candleInfo = inspectLastClosedCandle(lastClosedCandle);
+
+  const isBearishTrend = trend === 'Bajista';
+  const isOverbought = rsi14 >= 68;
+  const hasBearishMomentum = roc10 < 0 || rsi14 < 45;
+  const hasBearishOrRejectionCandle =
+    candleInfo.direction === 'Bajista' ||
+    candleInfo.upperWickPct >= 45 ||
+    candleInfo.pattern === 'Estrella fugaz / Rechazo superior' ||
+    candleInfo.pattern === 'Rechazo superior vendedor';
+
+  const isFavorableCandle =
+    (candleInfo.direction === 'Alcista' && candleInfo.upperWickPct < 45) ||
+    candleInfo.pattern === 'Martillo / Rechazo inferior';
+
+  const hasConstructiveMomentum = rsi14 >= 48 && rsi14 < 68 && roc10 >= 0;
+
+  // Confirms BUY only if 5M has bullish trend + constructive momentum + favorable closed candle
+  if (trend === 'Alcista' && hasConstructiveMomentum && isFavorableCandle) {
+    const summary = `5M Alcista · RSI ${rsi14.toFixed(1)} · ROC ${roc10 >= 0 ? '+' : ''}${roc10.toFixed(2)}% · ${candleInfo.pattern}`;
+    return {
+      analysis: {
+        status: 'pass',
+        statusLabel: 'Confirmada',
+        trend,
+        rsi14,
+        roc10,
+        lastCandleDirection: candleInfo.direction,
+        lastCandlePattern: candleInfo.pattern,
+        summary,
+      },
+      check: {
+        id: 'confirm_5m',
+        label: 'Confirmación 5M',
+        status: 'pass',
+        detail: `Alcista · RSI ${rsi14.toFixed(1)} · ${candleInfo.direction}`,
+      },
+      activationReason: `Confirmación 5M favorable (${summary}).`,
+      blockingReason: null,
+      missingData: false,
+    };
+  }
+
+  // Otherwise 5M is bearish, overbought, lateral, or contradictory -> WAIT
+  const issues: string[] = [];
+  if (isBearishTrend) issues.push('tendencia 5M bajista');
+  else if (trend === 'Lateral') issues.push('tendencia 5M lateral sin ruptura');
+  if (isOverbought) issues.push(`RSI(14) 5M sobrecomprado (${rsi14.toFixed(1)} ≥ 68)`);
+  else if (hasBearishMomentum) {
+    issues.push(`momentum 5M débil (RSI ${rsi14.toFixed(1)}, ROC ${roc10.toFixed(2)}%)`);
+  }
+  if (hasBearishOrRejectionCandle) {
+    issues.push(`última vela cerrada 5M desfavorable (${candleInfo.pattern})`);
+  } else if (!isFavorableCandle) {
+    issues.push(`última vela cerrada 5M sin confirmación alcista (${candleInfo.pattern})`);
+  }
+
+  const blockingReason = `Confirmación 5M en espera: ${issues.join('; ')}.`;
+  return {
+    analysis: {
+      status: 'warn',
+      statusLabel: 'Esperar',
+      trend,
+      rsi14,
+      roc10,
+      lastCandleDirection: candleInfo.direction,
+      lastCandlePattern: candleInfo.pattern,
+      summary: blockingReason,
+    },
+    check: {
+      id: 'confirm_5m',
+      label: 'Confirmación 5M',
+      status: 'warn',
+      detail: `${trend} · RSI ${rsi14.toFixed(1)} · ${candleInfo.direction}`,
+    },
+    activationReason: null,
+    blockingReason,
+    missingData: false,
+  };
+}
+
 export function evaluateMarketDecision(
   opp: MarketOpportunity,
-  isBinanceLive: boolean
+  isBinanceLive: boolean,
+  candles5m?: Candle[]
 ): MarketDecision {
   const market = MARKET_MAP[opp.marketId];
   const checks: DecisionCheck[] = [];
@@ -47,6 +279,7 @@ export function evaluateMarketDecision(
       { id: 'volatility', label: 'ATR y volatilidad', status: 'no_data', detail: NO_DATA_LABEL },
       { id: 'prev_day', label: 'Día anterior', status: 'no_data', detail: NO_DATA_LABEL },
       { id: 'net_pot', label: 'Potencial neto', status: 'no_data', detail: NO_DATA_LABEL },
+      { id: 'confirm_5m', label: 'Confirmación 5M', status: 'no_data', detail: NO_DATA_LABEL },
     ];
 
     return {
@@ -62,9 +295,19 @@ export function evaluateMarketDecision(
       primaryRisk: reason,
       activationReasons: [],
       blockingConditions: [reason],
+      confirmation5m: {
+        status: 'no_data',
+        statusLabel: 'Sin datos',
+        trend: null,
+        rsi14: null,
+        roc10: null,
+        lastCandleDirection: null,
+        lastCandlePattern: null,
+        summary: reason,
+      },
       checks: offlineChecks,
       passedCount: 0,
-      totalChecks: 9,
+      totalChecks: 10,
       updatedAt: opp.updatedAt,
     };
   }
@@ -151,9 +394,8 @@ export function evaluateMarketDecision(
   }
 
   // ---------------------------------------------------------------------------
-  // 3. Distancia al soporte S1 y resistencia R1
+  // 3. Ubicación estructural respecto a S1 y resistencia R1 (sin exigir R/B ni SL)
   // ---------------------------------------------------------------------------
-  let rrRatio: number | null = null;
   let bandPosition: number | null = null;
 
   if (!opp.support || !opp.resistance) {
@@ -165,53 +407,52 @@ export function evaluateMarketDecision(
         : 'resistencia R1';
     checks.push({
       id: 'sr',
-      label: 'Distancia S1 / R1',
+      label: 'Estructura S1 / R1',
       status: !opp.support ? 'block' : 'warn',
       detail: `Sin ${missingSr}`,
     });
     if (!opp.support) hasHardNoTrade = true;
     blockingConditions.push(
-      `Falta referencia estructural (${missingSr}) para validar riesgo y recorrido.`
+      `Falta referencia estructural (${missingSr}) para definir COMPRA LIMIT y VENTA LIMIT.`
     );
   } else {
     const sDist = opp.support.distancePct;
     const rDist = opp.resistance.distancePct;
-    rrRatio = rDist / Math.max(sDist, 0.05);
     const totalBand = sDist + rDist;
     bandPosition = totalBand > 0 ? sDist / totalBand : 0.5;
 
     if (rDist < MIN_R1_DISTANCE_PCT_FOR_BUY) {
       hasContradictionOrWait = true;
-      if (rDist < 0.12 && rrRatio < 0.5) hasHardNoTrade = true;
+      if (rDist < 0.12) hasHardNoTrade = true;
       checks.push({
         id: 'sr',
-        label: 'Distancia S1 / R1',
-        status: rDist < 0.12 && rrRatio < 0.5 ? 'block' : 'warn',
+        label: 'Estructura S1 / R1',
+        status: rDist < 0.12 ? 'block' : 'warn',
         detail: `R1 a +${rDist.toFixed(2)}% (muy cerca)`,
       });
       blockingConditions.push(
         `Precio demasiado cerca de resistencia R1 (${formatPrice(opp.resistance.price, market.priceDecimals)}, +${rDist.toFixed(2)}%; mínimo +${MIN_R1_DISTANCE_PCT_FOR_BUY.toFixed(2)}%).`
       );
-    } else if (rrRatio < MIN_RR_FOR_BUY || bandPosition > MAX_BAND_POSITION_FOR_BUY) {
+    } else if (bandPosition > MAX_BAND_POSITION_FOR_BUY) {
       hasContradictionOrWait = true;
       checks.push({
         id: 'sr',
-        label: 'Distancia S1 / R1',
+        label: 'Estructura S1 / R1',
         status: 'warn',
-        detail: `R/B ${rrRatio.toFixed(2)}x · R1 +${rDist.toFixed(2)}%`,
+        detail: `Zona alta (${(bandPosition * 100).toFixed(0)}%) · R1 +${rDist.toFixed(2)}%`,
       });
       blockingConditions.push(
-        `Ubicación técnica desfavorable entre S1 (-${sDist.toFixed(2)}%) y R1 (+${rDist.toFixed(2)}%, R/B ${rrRatio.toFixed(2)}x < ${MIN_RR_FOR_BUY.toFixed(2)}x).`
+        `Precio extendido en la parte alta del rango S1–R1 (${(bandPosition * 100).toFixed(0)}% > ${(MAX_BAND_POSITION_FOR_BUY * 100).toFixed(0)}%): esperar retroceso hacia zona LIMIT.`
       );
     } else {
       checks.push({
         id: 'sr',
-        label: 'Distancia S1 / R1',
+        label: 'Estructura S1 / R1',
         status: 'pass',
-        detail: `S1 -${sDist.toFixed(2)}% · R1 +${rDist.toFixed(2)}% (R/B ${rrRatio.toFixed(2)}x)`,
+        detail: `S1 -${sDist.toFixed(2)}% · R1 +${rDist.toFixed(2)}%`,
       });
       activationReasons.push(
-        `Buena ubicación respecto a S1 (-${sDist.toFixed(2)}%) con recorrido libre hacia R1 (+${rDist.toFixed(2)}%, R/B ${rrRatio.toFixed(2)}x).`
+        `Ubicación estructural favorable entre soporte S1 (-${sDist.toFixed(2)}%) y resistencia R1 (+${rDist.toFixed(2)}%).`
       );
     }
   }
@@ -475,6 +716,27 @@ export function evaluateMarketDecision(
   }
 
   // ---------------------------------------------------------------------------
+  // 10. Confirmación 5M (únicamente confirmación final de timing de entrada)
+  // ---------------------------------------------------------------------------
+  const confirm5m = evaluateFiveMinuteConfirmation(candles5m);
+  checks.push(confirm5m.check);
+  if (confirm5m.missingData) {
+    hasHardNoTrade = true;
+    if (confirm5m.blockingReason) {
+      blockingConditions.push(confirm5m.blockingReason);
+    }
+  } else if (confirm5m.analysis.status === 'pass') {
+    if (confirm5m.activationReason) {
+      activationReasons.push(confirm5m.activationReason);
+    }
+  } else {
+    hasContradictionOrWait = true;
+    if (confirm5m.blockingReason) {
+      blockingConditions.push(confirm5m.blockingReason);
+    }
+  }
+
+  // ---------------------------------------------------------------------------
   // Final State Resolution (strictly audited & independent of raw score)
   // ---------------------------------------------------------------------------
   const passedCount = checks.filter((c) => c.status === 'pass').length;
@@ -498,16 +760,16 @@ export function evaluateMarketDecision(
     entryZone = { low: Math.min(low, high), high };
   }
 
-  // Confidence level 0–100 (only computed when BUY confluence is active)
+  // Confidence level 0–100 (only computed when 10/10 confluence is active)
   let confidence: number | null = null;
   if (state === 'BUY' && netPot !== null) {
     const scoreBase = opp.score * 0.65; // up to 65
-    const rrBonus = rrRatio !== null ? clamp((rrRatio - 1.25) * 8, 0, 12) : 0;
+    const bandBonus = bandPosition !== null ? clamp((0.72 - bandPosition) * 20, 0, 12) : 4;
     const netBonus = clamp((netPot - 0.2) * 15, 0, 10);
     const fullTrendBonus = t4 === 'Alcista' && t1 === 'Alcista' && t15 === 'Alcista' ? 8 : 4;
     const spreadBonus = spPct <= 0.05 ? 5 : 2;
     confidence = Math.round(
-      clamp(scoreBase + rrBonus + netBonus + fullTrendBonus + spreadBonus, 55, 96)
+      clamp(scoreBase + bandBonus + netBonus + fullTrendBonus + spreadBonus, 55, 96)
     );
   }
 
@@ -526,8 +788,9 @@ export function evaluateMarketDecision(
     r1: opp.resistance,
     netPotentialAfterFeesPct: opp.netPotentialAfterFeesPct,
     primaryRisk,
-    activationReasons: state === 'BUY' ? activationReasons.slice(0, 4) : [],
+    activationReasons: state === 'BUY' ? activationReasons.slice(0, 5) : [],
     blockingConditions: state === 'BUY' ? [] : blockingConditions,
+    confirmation5m: confirm5m.analysis,
     checks,
     passedCount,
     totalChecks: checks.length,

@@ -102,6 +102,7 @@ export function BacktestingPanel({
   const closedHistoryKey = useMemo(() => {
     return MARKETS.map((m) => {
       const cMap = candlesByMarket[m.id];
+      const c5 = (cMap?.['5m'] ?? []).filter((c) => c.isClosed);
       const c15 = (cMap?.['15m'] ?? []).filter((c) => c.isClosed);
       const c1h = (cMap?.['1h'] ?? []).filter((c) => c.isClosed);
       const c4h = (cMap?.['4h'] ?? []).filter((c) => c.isClosed);
@@ -111,7 +112,7 @@ export function BacktestingPanel({
       const ask = ob?.asks[0]?.price ?? t?.askPrice ?? 0;
       const spBucket = bid > 0 && ask >= bid ? Math.round(((ask - bid) / ask) * 100000) : -1;
       const hasBook = ob && ob.bids.length > 0 && ob.asks.length > 0 ? 1 : 0;
-      return `${m.id}:${c15.length}:${c15[c15.length - 1]?.time ?? 0}:${c1h.length}:${c4h.length}:${hasBook}:${spBucket}`;
+      return `${m.id}:${c5.length}:${c5[c5.length - 1]?.time ?? 0}:${c15.length}:${c15[c15.length - 1]?.time ?? 0}:${c1h.length}:${c4h.length}:${hasBook}:${spBucket}`;
     }).join('|');
   }, [candlesByMarket, orderBooksByMarket, tickers]);
 

@@ -1,6 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { MARKETS, MARKET_MAP, TIMEFRAMES, TIMEFRAME_MAP } from '../config/markets';
 import { evaluateMarketDecision } from '../services/analysis/decisionEngine';
+import {
+  computeDailyAccumulatedStats,
+  evaluateLimitOperationPlan,
+  getLocalDateKey,
+} from '../services/analysis/limitOperationEngine';
 import { rankMarketOpportunities } from '../services/analysis/opportunityEngine';
 import { computeTechnicalAnalysis } from '../services/analysis/technicalAnalysis';
 import { simulateMarketTrade } from '../services/analysis/tradeSimulator';
@@ -14,7 +19,10 @@ import { BINANCE_WS_ENDPOINTS, BinanceMarketStream } from '../services/binance/w
 import type {
   Candle,
   ConnectionInfo,
+  DailyAccumulatedStats,
   FeeConfig,
+  LimitOperationPlan,
+  LimitPlanConfig,
   MarketDecision,
   MarketId,
   MarketOpportunity,
@@ -23,6 +31,7 @@ import type {
   TechnicalAnalysis,
   Ticker24h,
   Timeframe,
+  TrackedLimitOperation,
   TradeSimulation,
 } from '../types/market';
 
@@ -43,10 +52,20 @@ export interface UseBinanceMarketResult {
   setFeeConfig: (next: FeeConfig) => void;
   simulationConfig: SimulationConfig;
   setSimulationConfig: (next: SimulationConfig) => void;
+  limitConfig: LimitPlanConfig;
+  setLimitConfig: (next: LimitPlanConfig) => void;
+  dailyStats: DailyAccumulatedStats;
+  recordDailyProfit: (deltaUsdt: number) => void;
+  resetDailyProfit: () => void;
+  trackedLimitsByMarket: Partial<Record<MarketId, TrackedLimitOperation>>;
+  trackManualLimit: (plan: LimitOperationPlan) => void;
+  clearTrackedLimit: (id: MarketId) => void;
   opportunities: MarketOpportunity[];
   activeOpportunity: MarketOpportunity | null;
   decisionsByMarket: Record<MarketId, MarketDecision>;
   activeDecision: MarketDecision | null;
+  limitPlansByMarket: Record<MarketId, LimitOperationPlan>;
+  activeLimitPlan: LimitOperationPlan | null;
   simulationsByMarket: Record<MarketId, TradeSimulation>;
   activeSimulation: TradeSimulation | null;
   loadingRanking: boolean;
@@ -57,7 +76,7 @@ export interface UseBinanceMarketResult {
   refreshNow: () => void;
 }
 
-const RANKING_TIMEFRAMES: Timeframe[] = ['15m', '1h', '4h'];
+const RANKING_TIMEFRAMES: Timeframe[] = ['5m', '15m', '1h', '4h'];
 
 export function useBinanceMarket(): UseBinanceMarketResult {
   const [marketId, setMarketIdState] = useState<MarketId>('USDT/COP');
@@ -78,6 +97,94 @@ export function useBinanceMarket(): UseBinanceMarketResult {
     availableCapitalUsdt: 1300,
     capitalAllocationPct: 10,
   });
+  const [limitConfig, setLimitConfigState] = useState<LimitPlanConfig>({
+    baseCapitalUsdt: 1300,
+    maxExposurePct: 35,
+    dailyTargetMinUsdt: 6,
+    dailyTargetMaxUsdt: 10,
+    minNetProfitUsdt: 2,
+  });
+
+  const todayKey = getLocalDateKey();
+  const [dailyRealizedUsdt, setDailyRealizedUsdt] = useState<number>(() => {
+    try {
+      if (typeof window === 'undefined') return 0;
+      const raw = window.localStorage.getItem(`spot_master_daily_net_${todayKey}`);
+      const parsed = raw !== null ? parseFloat(raw) : 0;
+      return Number.isFinite(parsed) ? parsed : 0;
+    } catch {
+      return 0;
+    }
+  });
+  const [trackedLimitsByMarket, setTrackedLimitsByMarket] = useState<
+    Partial<Record<MarketId, TrackedLimitOperation>>
+  >({});
+
+  const setLimitConfig = useCallback((next: LimitPlanConfig) => {
+    setLimitConfigState(next);
+    // Keep base capital mirrored for the untouched backtest panel
+    setSimulationConfig((prev) => ({
+      ...prev,
+      availableCapitalUsdt: next.baseCapitalUsdt,
+    }));
+  }, []);
+
+  const recordDailyProfit = useCallback(
+    (deltaUsdt: number) => {
+      if (!Number.isFinite(deltaUsdt)) return;
+      setDailyRealizedUsdt((prev) => {
+        const next = Math.round((prev + deltaUsdt) * 100) / 100;
+        try {
+          window.localStorage.setItem(`spot_master_daily_net_${todayKey}`, String(next));
+        } catch {
+          // Ignore storage errors in restricted iframes
+        }
+        return next;
+      });
+    },
+    [todayKey]
+  );
+
+  const resetDailyProfit = useCallback(() => {
+    setDailyRealizedUsdt(0);
+    try {
+      window.localStorage.setItem(`spot_master_daily_net_${todayKey}`, '0');
+    } catch {
+      // Ignore storage errors
+    }
+  }, [todayKey]);
+
+  const trackManualLimit = useCallback((plan: LimitOperationPlan) => {
+    if (
+      plan.buyLimitPrice === null ||
+      plan.sellLimitPrice === null ||
+      plan.s1Price === null ||
+      plan.recommendedCapitalUsdt === null ||
+      plan.netProfitUsdt === null
+    ) {
+      return;
+    }
+    setTrackedLimitsByMarket((prev) => ({
+      ...prev,
+      [plan.marketId]: {
+        marketId: plan.marketId,
+        buyLimitPrice: plan.buyLimitPrice!,
+        sellLimitPrice: plan.sellLimitPrice!,
+        s1InvalidationPrice: plan.s1Price!,
+        capitalUsdt: plan.recommendedCapitalUsdt!,
+        expectedNetUsdt: plan.netProfitUsdt!,
+        trackedAt: Date.now(),
+      },
+    }));
+  }, []);
+
+  const clearTrackedLimit = useCallback((id: MarketId) => {
+    setTrackedLimitsByMarket((prev) => {
+      const next = { ...prev };
+      delete next[id];
+      return next;
+    });
+  }, []);
 
   const [loadingInitial, setLoadingInitial] = useState<boolean>(true);
   const [loadingChart, setLoadingChart] = useState<boolean>(true);
@@ -644,14 +751,15 @@ export function useBinanceMarket(): UseBinanceMarketResult {
     clockTick,
   ]);
 
-  // Decision Engine evaluated strictly from real Binance opportunity data (separate from raw score)
+  // Decision Engine evaluated strictly from real Binance opportunity data + real 5M timing confirmation
   const decisionsByMarket: Record<MarketId, MarketDecision> = useMemo(() => {
     const map = {} as Record<MarketId, MarketDecision>;
     for (const opp of opportunities) {
-      map[opp.marketId] = evaluateMarketDecision(opp, connectionInfo.isLive);
+      const candles5m = candlesByMarket[opp.marketId]?.['5m'];
+      map[opp.marketId] = evaluateMarketDecision(opp, connectionInfo.isLive, candles5m);
     }
     return map;
-  }, [opportunities, connectionInfo.isLive]);
+  }, [opportunities, connectionInfo.isLive, candlesByMarket]);
 
   const activeOpportunity = useMemo(
     () => opportunities.find((o) => o.marketId === marketId) ?? null,
@@ -660,7 +768,43 @@ export function useBinanceMarket(): UseBinanceMarketResult {
 
   const activeDecision = decisionsByMarket[marketId] ?? null;
 
-  // Risk Management & Trade Simulation evaluated independently without altering Score or Decision
+  // Daily goal accumulated statistics ($6-$10 net target)
+  const dailyStats: DailyAccumulatedStats = useMemo(
+    () => computeDailyAccumulatedStats(dailyRealizedUsdt, limitConfig, todayKey),
+    [dailyRealizedUsdt, limitConfig, todayKey]
+  );
+
+  // Manual Spot LIMIT Operation Engine (replaces Stop Loss/R:R approval with structural BUY/SELL LIMIT)
+  const limitPlansByMarket: Record<MarketId, LimitOperationPlan> = useMemo(() => {
+    const map = {} as Record<MarketId, LimitOperationPlan>;
+    for (const opp of opportunities) {
+      const dec = decisionsByMarket[opp.marketId];
+      if (dec) {
+        map[opp.marketId] = evaluateLimitOperationPlan(
+          opp,
+          dec,
+          limitConfig,
+          feeConfig,
+          dailyStats,
+          connectionInfo.isLive,
+          trackedLimitsByMarket[opp.marketId] ?? null
+        );
+      }
+    }
+    return map;
+  }, [
+    opportunities,
+    decisionsByMarket,
+    limitConfig,
+    feeConfig,
+    dailyStats,
+    connectionInfo.isLive,
+    trackedLimitsByMarket,
+  ]);
+
+  const activeLimitPlan = limitPlansByMarket[marketId] ?? null;
+
+  // Kept strictly for compatibility with untouched backtest engine
   const simulationsByMarket: Record<MarketId, TradeSimulation> = useMemo(() => {
     const map = {} as Record<MarketId, TradeSimulation>;
     for (const opp of opportunities) {
@@ -697,10 +841,20 @@ export function useBinanceMarket(): UseBinanceMarketResult {
     setFeeConfig,
     simulationConfig,
     setSimulationConfig,
+    limitConfig,
+    setLimitConfig,
+    dailyStats,
+    recordDailyProfit,
+    resetDailyProfit,
+    trackedLimitsByMarket,
+    trackManualLimit,
+    clearTrackedLimit,
     opportunities,
     activeOpportunity,
     decisionsByMarket,
     activeDecision,
+    limitPlansByMarket,
+    activeLimitPlan,
     simulationsByMarket,
     activeSimulation,
     loadingRanking,

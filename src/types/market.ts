@@ -243,6 +243,19 @@ export interface TechnicalEntryZone {
   high: number;
 }
 
+export type Confirmation5mStatus = 'pass' | 'warn' | 'no_data';
+
+export interface Confirmation5mAnalysis {
+  status: Confirmation5mStatus;
+  statusLabel: 'Confirmada' | 'Esperar' | 'Sin datos';
+  trend: TrendDirection | null;
+  rsi14: number | null;
+  roc10: number | null;
+  lastCandleDirection: 'Alcista' | 'Bajista' | 'Doji' | null;
+  lastCandlePattern: string | null;
+  summary: string;
+}
+
 export interface MarketDecision {
   marketId: MarketId;
   state: DecisionState;
@@ -256,6 +269,7 @@ export interface MarketDecision {
   primaryRisk: string;
   activationReasons: string[];
   blockingConditions: string[];
+  confirmation5m: Confirmation5mAnalysis;
   checks: DecisionCheck[];
   passedCount: number;
   totalChecks: number;
@@ -390,5 +404,100 @@ export interface MarketBacktestResult {
   summary: BacktestSummary | null;
   records: BacktestSignalRecord[];
 }
+
+export interface LimitPlanConfig {
+  baseCapitalUsdt: number; // Default 1300 USDT
+  maxExposurePct: number; // Max % of base capital per single LIMIT operation (never 100% automatic)
+  dailyTargetMinUsdt: number; // 6 USDT
+  dailyTargetMaxUsdt: number; // 10 USDT
+  minNetProfitUsdt: number; // Configurable minimum net USDT profit after fees & spread
+}
+
+export type LimitOperationState =
+  | 'COMPRAR LIMIT'
+  | 'ESPERAR'
+  | 'NO COMPRAR'
+  | 'INVALIDADA';
+
+export interface TrackedLimitOperation {
+  marketId: MarketId;
+  buyLimitPrice: number;
+  sellLimitPrice: number;
+  s1InvalidationPrice: number;
+  capitalUsdt: number;
+  expectedNetUsdt: number;
+  trackedAt: number;
+}
+
+export type DailyGoalStatus =
+  | 'En progreso'
+  | 'Rango objetivo alcanzado ($6–$10)'
+  | 'Objetivo $10 completado · Adicionales activas';
+
+export interface DailyAccumulatedStats {
+  dateKey: string;
+  targetMinUsdt: number;
+  targetMaxUsdt: number;
+  realizedUsdt: number;
+  remainingToMinUsdt: number;
+  remainingToMaxUsdt: number;
+  progressToMinPct: number;
+  progressToMaxPct: number;
+  status: DailyGoalStatus;
+  goalCompleted: boolean;
+}
+
+export interface LimitOperationPlan {
+  marketId: MarketId;
+  state: LimitOperationState;
+  stateLabel:
+    | '🟢 COMPRAR LIMIT'
+    | '🟡 ESPERAR'
+    | '🔴 NO COMPRAR'
+    | '🔴 INVALIDADA';
+  isRecommended: boolean;
+  isAdditionalOpportunity: boolean;
+  additionalReason: string | null;
+  isStructurallyInvalidated: boolean;
+  invalidationReason: string | null;
+  decisionState: DecisionState;
+  opportunityScore: number | null;
+  currentPrice: number | null;
+  buyLimitPrice: number | null;
+  buyLimitBasis: string | null;
+  buyLimitDistancePct: number | null;
+  sellLimitPrice: number | null;
+  sellLimitBasis: string | null;
+  s1Price: number | null;
+  r1Price: number | null;
+  atr14: number | null;
+  // Capital sizing (dynamic for $6–$10 goal within max exposure cap)
+  baseCapitalUsdt: number;
+  maxExposurePct: number;
+  maxAllowedCapitalUsdt: number;
+  capitalNeededForMinGoalUsdt: number | null;
+  capitalNeededForMaxGoalUsdt: number | null;
+  recommendedCapitalUsdt: number | null;
+  recommendedExposurePct: number | null;
+  // Gross, Costs, and Net Profit (strictly after buy fee 0.10%, sell fee 0.10%, real spread)
+  grossSpreadPct: number | null;
+  grossProfitUsdt: number | null;
+  buyFeePct: number;
+  sellFeePct: number;
+  buyFeeUsdt: number | null;
+  sellFeeUsdt: number | null;
+  spreadPct: number | null;
+  spreadCostUsdt: number | null;
+  totalCostsUsdt: number | null;
+  netProfitUsdt: number | null;
+  netProfitPct: number | null;
+  dailyGoalContributionMinPct: number | null;
+  dailyGoalContributionMaxPct: number | null;
+  // Audit messages
+  reasons: string[];
+  blockingReasons: string[];
+  updatedAt: number | null;
+}
+
 
 
